@@ -1,0 +1,15 @@
+#!/bin/sh
+# Refuse a commit whose .md / .txt files contain hidden control characters (a Windows path
+# written from a script as a plain string turns \a \f \v \r \01 into control bytes; 13 such
+# spots were found on 10 Nov 2026). Only the files in this commit are checked.
+# daily_backup.ps1 logs the reason and commits with --no-verify if this refuses, so no day is
+# left without a backup.
+# Installed per clone with: git config core.hooksPath .githooks
+python -I -X utf8 "Kit_01_General_Video_Rules/tools/check_text.py" --staged
+status=$?
+if [ $status -ne 0 ]; then
+    echo "pre-commit: control characters found (list above). Fix them, then commit again."
+    echo "Tool: python -I -X utf8 Kit_01_General_Video_Rules/tools/check_text.py <file>"
+    exit 1
+fi
+exit 0

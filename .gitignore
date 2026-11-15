@@ -1,0 +1,18 @@
+# Media stays out of history: big and binary; text rules and scripts are what change.
+*.wav
+*.mp3
+*.mp4
+*.mov
+*.aep
+*.txt.bak
+# Except the SFX library: part of the system.
+!SFX_Library/**
+
+# Yours, never overwritten by `git pull`: your rules, your PC paths, your client files.
+MY-RULES.md
+THIS-PC.md
+Kit_04_Clients/*
+!Kit_04_Clients/README.md
+
+# API keys never go to GitHub (they live in <parent of Claude-Workflow>\keys\ anyway).
+*.env

@@ -1,0 +1,11 @@
+{
+  "_comment": "Claude Code plugins that are part of the workflow. install.py adds each marketplace and installs each plugin (user scope). Omar, 13 Nov 2026: the plugins are part of the system.",
+  "marketplaces": {
+    "claude-plugins-official": "anthropics/claude-plugins-official",
+    "remotion": "remotion-dev/claude-code-plugin"
+  },
+  "plugins": [
+    "hyperframes@claude-plugins-official",
+    "remotion@remotion"
+  ]
+}

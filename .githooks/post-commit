@@ -1,0 +1,13 @@
+#!/bin/sh
+# 1) If the commit touched a skill, copy the skills to this PC's Claude skills folder (~\.claude\skills)
+#    right away, so the local copy never lags behind the Kit (the Kit copy is the master).
+# 2) Push every commit to the private GitHub repo right away, so nothing lives only on this PC.
+#    If the network is down the commit stays local and goes up with the next commit's push.
+# Installed per clone with: git config core.hooksPath .githooks
+if git diff-tree --no-commit-id --name-only -r HEAD | grep -q '^Kit_01_General_Video_Rules/skills/'; then
+    powershell.exe -NoProfile -ExecutionPolicy Bypass -File "Kit_01_General_Video_Rules/tools/sync_skills.ps1" >/dev/null 2>&1 \
+        || echo "post-commit: sync_skills failed - run Kit_01_General_Video_Rules/tools/sync_skills.ps1 by hand."
+fi
+if git remote get-url origin >/dev/null 2>&1; then
+    git push -q origin HEAD 2>/dev/null || echo "post-commit: push failed (offline?) - it will go up with the next commit."
+fi
