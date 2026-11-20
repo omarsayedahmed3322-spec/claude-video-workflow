@@ -12,17 +12,21 @@ Used by the skill free-llm-delegate. Prints only the answer on stdout (one "[pro
 - Text files passed with --file are appended to the prompt; video/audio/image files are uploaded to Gemini,
   used once, then deleted from Google's side.
 """
-import argparse, glob, json, mimetypes, os, shutil, subprocess, sys, tempfile, time
+import argparse, glob, json, mimetypes, os, shutil, subprocess, sys, tempfile, threading, time
 import requests
 
 WF = os.environ.get("CLAUDE_WORKFLOW") or os.path.abspath(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", ".."))
 ENV_PATH = os.environ.get("FREE_LLM_ENV") or os.path.join(os.path.dirname(WF), "keys", "free-llm.env")   # next to <Claude-Workflow>: <parent>\keys
+AGY_STATE_DIR = os.path.dirname(WF)
+AGY_LIVE_LOG = os.path.join(AGY_STATE_DIR, "_agy_live.log")
+AGY_LIVE_STATE = os.path.join(AGY_STATE_DIR, "_agy_live_state.json")
+AGY_META_FILE = os.path.join(AGY_STATE_DIR, "_agy_meta.json")
 GEMINI = "https://generativelanguage.googleapis.com"
 
 # name: (base_url, key_env, default_models, works_without_key) — comma-separated models are tried in order (busy -> next)
 PROVIDERS = {
     "codex":      ("codex", "", "", True),  # friend's ChatGPT Plus: --provider codex only (debate / hard jobs), capped by codex_gate()
-    "agy":        ("antigravity", "", "gemini-4-hydrogen-medium,gemini-4-hydrogen-high", True),  # Omar 2026-11-12: Gemini 4 Hydrogen replaced 3.8 Flash;  # Antigravity CLI, Omar's Google AI Pro login (Gemini CLI was closed to personal accounts 2026-11-06)
+    "agy":        ("antigravity", "", "gemini-4-hydrogen-high,gemini-4-hydrogen-xhigh,gemini-4-hydrogen-medium", True),  # Omar 2026-11-17: order high -> xhigh -> medium (last resort), never low; 2026-11-15: high is the default for every review; 2026-11-12: Gemini 4 Hydrogen replaced 3.8 Flash;  # Antigravity CLI, Omar's Google AI Pro login (Gemini CLI was closed to personal accounts 2026-11-06)
     "gemini":     (GEMINI + "/v1beta/openai", "GEMINI_API_KEY", "gemini-3.5-flash,gemini-flash-latest,gemini-flash-lite-latest", False),  # flash-latest hung 4/4 on 2026-11-06
     "groq":       ("https://api.groq.com/openai/v1", "GROQ_API_KEY", "openai/gpt-oss-120b", False),
     "nvidia":     ("https://integrate.api.nvidia.com/v1", "NVIDIA_API_KEY", "nvidia/nemotron-3.5-lightning-30b-a3b,google/gemma-4-31b-it", False),
@@ -109,11 +113,68 @@ def chat(name, env, prompt, system=None, model=None, max_tokens=4096, timeout=12
     raise Skip(err)
 
 
+def _t12(with_date=False):
+    lt = time.localtime()
+    suf = "ص" if lt.tm_hour < 12 else "م"
+    h12 = lt.tm_hour % 12 or 12
+    t = "%02d:%02d:%02d %s" % (h12, lt.tm_min, lt.tm_sec, suf)
+    return ("%04d-%02d-%02d · %s" % (lt.tm_year, lt.tm_mon, lt.tm_mday, t)) if with_date else t
+
+
+def _agy_write_log(text, reset_if_big=False):
+    try:
+        if reset_if_big and os.path.exists(AGY_LIVE_LOG) and os.path.getsize(AGY_LIVE_LOG) > 5 * 1024 * 1024:
+            with open(AGY_LIVE_LOG, "rb") as f:
+                f.seek(-512 * 1024, os.SEEK_END)
+                tail = f.read()
+            with open(AGY_LIVE_LOG, "wb") as f:
+                f.write(tail)
+        with open(AGY_LIVE_LOG, "a", encoding="utf-8") as f:
+            f.write(text)
+            f.flush()
+    except Exception:
+        pass
+
+
+def _agy_save_state(state):
+    try:
+        state["updated_at"] = time.strftime("%Y-%m-%d %H:%M:%S")
+        tmp_p = "%s.%d.tmp" % (AGY_LIVE_STATE, os.getpid())
+        with open(tmp_p, "w", encoding="utf-8") as f:
+            json.dump(state, f, ensure_ascii=False, indent=2)
+        os.replace(tmp_p, AGY_LIVE_STATE)
+    except Exception:
+        pass
+
+
+def _agy_record_meta(conv_id, info):
+    if not conv_id:
+        return
+    try:
+        meta = {}
+        if os.path.exists(AGY_META_FILE):
+            with open(AGY_META_FILE, encoding="utf-8") as f:
+                meta = json.load(f)
+        meta[conv_id] = info
+        if len(meta) > 300:
+            keys = sorted(meta.keys(), key=lambda k: meta[k].get("started_at", ""))[-300:]
+            meta = {k: meta[k] for k in keys}
+        tmp_p = "%s.%d.tmp" % (AGY_META_FILE, os.getpid())
+        with open(tmp_p, "w", encoding="utf-8") as f:
+            json.dump(meta, f, ensure_ascii=False, indent=2)
+        os.replace(tmp_p, AGY_META_FILE)
+    except Exception:
+        pass
+
+
 def antigravity(exe, prompt, system=None, model="", timeout=120, workdir=None, attach=()):
     # Antigravity CLI (agy) on Omar's Google account, full permissions (Omar's call, 2026-11-06): it can run commands
     # and edit files, so it runs in a fresh temp folder unless --workdir names the one work folder it may touch.
     # Runs in a fresh temp folder; a long prompt is saved there as task.md (Windows caps a command line at ~32k chars).
+    # Streams live progress via --output-format stream-json to _agy_live.log and _agy_live_state.json for Omar's monitor.
     text = ((system + "\n\n") if system else "") + prompt
+    orig_files = [os.path.basename(f) for f in attach]
+    orig_paths = [os.path.abspath(f) for f in attach]
     with tempfile.TemporaryDirectory(prefix="agy_", ignore_cleanup_errors=True) as tmp:   # agy can still hold the folder on exit (2026-11-13)
         d = workdir or tmp
         ask = text
@@ -141,17 +202,181 @@ def antigravity(exe, prompt, system=None, model="", timeout=120, workdir=None, a
                    "tools. Then do the task below and reply with the answer only.\n\n" % ", ".join(mentions)) + ask
         err = "no model"
         for m in model.split(","):
-            cmd = [exe, "-p", ask, "--dangerously-skip-permissions", "--print-timeout", "%ds" % timeout] + (["--model", m] if m else [])
+            cmd = [exe, "-p", ask, "--output-format", "stream-json", "--dangerously-skip-permissions",
+                   "--print-timeout", "%ds" % timeout] + (["--model", m] if m else [])
+            started_str = time.strftime("%Y-%m-%d %H:%M:%S")
+            t_start = time.time()
+            live_state = {
+                "status": "running",
+                "started_at": started_str,
+                "model": m or "auto",
+                "conversation_id": "",
+                "files": orig_files,
+                "file_paths": orig_paths,
+                "prompt": prompt[:8000],
+                "events": [{"t": started_str, "msg": "بدء جلسة agy (%s)" % (m or "auto")}],
+                "live_thinking": "",
+                "live_text": "",
+                "duration_seconds": 0,
+                "usage": {},
+                "error": "",
+            }
+            _agy_save_state(live_state)
+            files_label = ", ".join(orig_files) if orig_files else "بدون ملفات ميديا"
+            _agy_write_log(
+                ("\n" + "=" * 72 + "\n"
+                 "[%s] جلسة جديدة | الموديل: %s | الملفات: %s\n"
+                 "البرومبت: %s\n"
+                 + "-" * 72 + "\n")
+                % (_t12(with_date=True), m or "auto", files_label, prompt[:600].replace("\n", " ")),
+                reset_if_big=True,
+            )
             try:
-                r = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8", stdin=subprocess.DEVNULL,
-                                   timeout=timeout + 30, cwd=d)
-            except subprocess.TimeoutExpired:
-                err = "timeout"
+                proc = subprocess.Popen(
+                    cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                    text=True, encoding="utf-8", errors="replace",
+                    stdin=subprocess.DEVNULL, cwd=d,
+                )
+            except Exception as e:
+                err = str(e)[:160]
+                live_state["status"] = "error"
+                live_state["error"] = err
+                _agy_save_state(live_state)
                 continue
-            if r.returncode == 0 and r.stdout.strip():
-                return r.stdout.strip(), m or "auto"
-            out = (r.stderr or r.stdout).strip()
-            err = out.splitlines()[-1][:160] if out else "exit %d" % r.returncode
+
+            stderr_chunks = []
+            def _read_err():
+                try:
+                    stderr_chunks.append(proc.stderr.read())
+                except Exception:
+                    pass
+            t_err = threading.Thread(target=_read_err, daemon=True)
+            t_err.start()
+
+            timed_out = [False]
+            def _kill_on_timeout():
+                timed_out[0] = True
+                try:
+                    proc.kill()
+                except Exception:
+                    pass
+            timer = threading.Timer(timeout + 30, _kill_on_timeout)
+            timer.start()
+
+            conv_id = ""
+            used_model = m or "auto"
+            final_response = ""
+            text_deltas = []
+            raw_lines = []
+            streaming_text_started = False
+            last_save = time.time()
+
+            try:
+                for line in proc.stdout:
+                    s = line.strip()
+                    if not s:
+                        continue
+                    try:
+                        ev = json.loads(s)
+                    except Exception:
+                        raw_lines.append(s)
+                        continue
+                    etype = ev.get("event", "")
+                    if ev.get("conversation_id") and not conv_id:
+                        conv_id = ev["conversation_id"]
+                        live_state["conversation_id"] = conv_id
+                    if etype == "init":
+                        init_d = ev.get("init") or {}
+                        if init_d.get("model"):
+                            used_model = init_d["model"]
+                            live_state["model"] = used_model
+                        _agy_write_log("[%s] Conversation ID: %s | Model: %s\n" % (_t12(), conv_id, used_model))
+                        _agy_record_meta(conv_id, {
+                            "started_at": started_str, "model": used_model,
+                            "files": orig_files, "file_paths": orig_paths,
+                            "prompt_preview": prompt[:300],
+                        })
+                        _agy_save_state(live_state)
+                    elif etype == "step_update":
+                        su = ev.get("step_update") or {}
+                        if su.get("conversation_id") and not conv_id:
+                            conv_id = su["conversation_id"]
+                            live_state["conversation_id"] = conv_id
+                        st_type = su.get("step_type", "")
+                        st_state = su.get("state", "")
+                        st_idx = su.get("step_index", "")
+                        td = su.get("text_delta") or ""
+                        thd = su.get("thinking_delta") or su.get("thought_delta") or ""
+                        if thd:
+                            live_state["live_thinking"] += thd
+                        if td:
+                            if not streaming_text_started:
+                                _agy_write_log("\n[%s] رد Gemini (لايف):\n" % _t12())
+                                streaming_text_started = True
+                            text_deltas.append(td)
+                            live_state["live_text"] += td
+                            _agy_write_log(td)
+                        elif st_type:
+                            msg = "خطوة %s: %s (%s)" % (st_idx, st_type, st_state)
+                            if not live_state["events"] or live_state["events"][-1]["msg"] != msg:
+                                live_state["events"].append({"t": _t12(), "msg": msg})
+                                _agy_write_log("[%s] %s\n" % (_t12(), msg))
+                        if su.get("usage"):
+                            live_state["usage"] = su["usage"]
+                        if time.time() - last_save >= 0.4:
+                            live_state["duration_seconds"] = round(time.time() - t_start, 1)
+                            _agy_save_state(live_state)
+                            last_save = time.time()
+                    elif etype == "result":
+                        res = ev.get("result") or {}
+                        if res.get("conversation_id"):
+                            conv_id = res["conversation_id"]
+                            live_state["conversation_id"] = conv_id
+                        if res.get("response"):
+                            final_response = res["response"]
+                        if res.get("usage"):
+                            live_state["usage"] = res["usage"]
+                        if res.get("duration_seconds") is not None:
+                            live_state["duration_seconds"] = round(float(res["duration_seconds"]), 1)
+            finally:
+                timer.cancel()
+                proc.wait()
+                t_err.join(timeout=2)
+
+            if timed_out[0]:
+                err = "timeout"
+                live_state["status"] = "error"
+                live_state["error"] = "timeout"
+                live_state["duration_seconds"] = round(time.time() - t_start, 1)
+                _agy_save_state(live_state)
+                _agy_write_log("\n[%s] انتهى الوقت (timeout)\n" % _t12())
+                continue
+
+            answer = (final_response or "".join(text_deltas) or "\n".join(raw_lines)).strip()
+            if proc.returncode == 0 and answer:
+                live_state["status"] = "done"
+                live_state["live_text"] = answer
+                live_state["duration_seconds"] = live_state["duration_seconds"] or round(time.time() - t_start, 1)
+                _agy_save_state(live_state)
+                _agy_record_meta(conv_id, {
+                    "started_at": started_str, "model": used_model,
+                    "files": orig_files, "file_paths": orig_paths,
+                    "prompt_preview": prompt[:300],
+                    "duration_seconds": live_state["duration_seconds"],
+                    "usage": live_state["usage"],
+                })
+                _agy_write_log(
+                    "\n[%s] انتهت المراجعة بنجاح في %.1f ث | ID: %s\n"
+                    % (_t12(), live_state["duration_seconds"], conv_id)
+                )
+                return answer, used_model
+            out = ("".join(stderr_chunks) or "\n".join(raw_lines)).strip()
+            err = out.splitlines()[-1][:160] if out else "exit %d" % proc.returncode
+            live_state["status"] = "error"
+            live_state["error"] = err
+            live_state["duration_seconds"] = round(time.time() - t_start, 1)
+            _agy_save_state(live_state)
+            _agy_write_log("\n[%s] خطأ: %s\n" % (_t12(), err))
     raise Skip(err)
 
 
@@ -349,7 +574,23 @@ def is_media(p):
     return (mimetypes.guess_type(p)[0] or "").startswith(MEDIA_PREFIX)
 
 
+def protected_workdir(path):
+    """agy/codex run with full permissions inside --workdir. Client work and the kits themselves are refused unless
+    --allow-protected-workdir is given (plan phase 9, 2026-11-20: until now this was a written rule only)."""
+    p = os.path.normcase(os.path.realpath(path))
+    wf = os.path.normcase(os.path.realpath(WF))
+    if p == wf or p.startswith(wf + os.sep):
+        return "Claude-Workflow"
+    parts = [x.lower() for x in p.split(os.sep)]
+    return "Clients" if "clients" in parts else None
+
+
 def cmd_ask(a, env):
+    if a.workdir:
+        hit = protected_workdir(a.workdir)
+        if hit and not a.allow_protected_workdir:
+            sys.exit("Refused: --workdir %s is under %s\\ (agy/codex can edit and delete files there). Use an empty folder "
+                     "or copy the files out; only if Omar asked for it, add --allow-protected-workdir." % (a.workdir, hit))
     prompt = a.prompt or ""
     if a.prompt_file:
         with open(a.prompt_file, encoding="utf-8") as f:
@@ -448,6 +689,8 @@ def main():
     s.add_argument("--max-tokens", type=int, default=4096)
     s.add_argument("--out")
     s.add_argument("--workdir", help="agy only: the one folder it may work in (default: an empty temp folder)")
+    s.add_argument("--allow-protected-workdir", action="store_true",
+                   help="let --workdir point under Clients\\ or Claude-Workflow\\ (only when Omar asked)")
     s = sub.add_parser("image", help="generate an image with Codex (friend's ChatGPT Plus, capped)")
     s.add_argument("prompt", nargs="?", default="")
     s.add_argument("--prompt-file", help="long prompt kept in a file (appended to the prompt argument)")

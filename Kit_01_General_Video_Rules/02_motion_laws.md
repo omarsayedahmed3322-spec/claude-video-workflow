@@ -38,6 +38,7 @@
 ## 4. Entries / exits
 - **No pure opacity fade** (الافتراضي للموشن جرافيك السريع، شوف §0)**.** Entry = motion (Y-offset or scale 85→100) + Gaussian Blur 45→0 over 0.35s (Repeat Edge Pixels ON, 80/20).
 - Scene entry blur f0–10, exit blur 0→45 over the last 6–8 frames (15/85).
+- **Masks and crops are feathered by default** `[ذوق عمر]`: anything that moves through a mask or crop window (rolling digits, wipes, reveals, chart lines and area fills) fades out over a wide band (about 15–35% of the window), never a hard edge. Feather 0 only when the mask isolates one complete element exactly, so no cut shows and no pixel is missing or extra (AG1 R5, 2026-11-16: «اخطاء مبتدئين مش اخطاء ستايل»).
 - **Bounce only on icons / cards / badges / logos**, never on text (inertial bounce expression in `tools/ae_helpers.jsx`).
 - **Caption bubbles / chat lines (CLE R2, Omar):** pop-in = scale 55→100 with the bounce overshoot (a bubble is a card) + Gaussian Blur 16→0 over the first ~4 frames + motion blur ON. **Dialogue = one line on screen at a time:** each line leaves right after its last word (lift 70px, scale 100→86, blur 0→22, opacity out over 0.2s, 15/85) — stacking two speakers' lines scattered the eye.
 - Collage/sticker wobble: `posterizeTime(12)` for a tactile stop-motion feel; text/camera/UI stay smooth.

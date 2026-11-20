@@ -9,7 +9,7 @@ changes in the kits reaches the public copy on the next run, so both evolve toge
 
 What goes in: every file git tracks here (plus new files git does not ignore), then the files in public_overlay\
 on top (README, .gitignore, the Kit_04 README without clients, ...).
-What stays out: CHANGELOG.md, THIS-PC.md, Kit_04_Clients\, public_overlay\ itself, and the `exclude` list in the
+What stays out: CHANGELOG.md, THIS-PC.md, METRICS.csv, Kit_04_Clients\, public_overlay\ itself, and the `exclude` list in the
 private settings file (Kit_04_Clients\_public_export.json - it lives in the private clients repo because it names clients).
 Text files are rewritten in this order:
   1. markers (.md only):  a line with <!--private--> is dropped;  <!--private:start--> ... <!--private:end--> is dropped;
@@ -25,7 +25,7 @@ that waits for Omar's OK (START-HERE section 7).
 import argparse, datetime, fnmatch, json, os, re, shutil, subprocess, sys
 
 ROOT = os.environ.get("CLAUDE_WORKFLOW") or os.path.abspath(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", ".."))
-ALWAYS_OUT = ["CHANGELOG.md", "THIS-PC.md", "Kit_04_Clients/", "public_overlay/", "*.pyc", "*/__pycache__/*"]
+ALWAYS_OUT = ["CHANGELOG.md", "THIS-PC.md", "METRICS.csv", "Kit_04_Clients/", "public_overlay/", "*.pyc", "*/__pycache__/*"]
 TEXT_EXT = {".md", ".py", ".jsx", ".js", ".mjs", ".ps1", ".json", ".txt", ".html", ".css", ".csv", ".tpl", ".example",
             ".sh", ".yml", ".yaml", ".toml", ".srt", ".xml", ".gitignore", ""}
 SECRETS = [

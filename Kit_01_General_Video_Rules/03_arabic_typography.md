@@ -67,3 +67,6 @@ Word-by-word Arabic captions can be rendered outside AE: Chrome shapes Arabic it
 - **A caption container with `height:0` renders blank frames** (absolutely positioned card inside it). Give it a real height and centre the card with flex. Check one frame with `hyperframes snapshot --at <sec> --no-end` before the full render. The lint warning `nested_structure_needs_subcomposition` is harmless here.
 - **Glass card behind the caption (real blur, CLD R1):** in AE, a copy of the footage with Gaussian Blur 55 (repeat edges) + Brightness +25, matted by a second, disabled copy of the overlay: `glass.setTrackMatte(matte, TrackMatteType.ALPHA); matte.enabled = false;`. The card in the HTML stays ~70–80 % opaque so the blur shows through.
 - The style (font file, size, position, colours) is per client — pass it on the command line and note it in the client's file in `Kit_04_Clients`.
+- **Arabic in HTML/HyperFrames, three traps** `[تقني]` (AG1 R5, 2026-11-16):
+  - `Palestine` has no comma glyph: «229,000» showed as «229 000». Wrap every number inside Arabic text in a Montserrat span.
+  - A signed number (`+84`) inside an RTL line moves its sign: give the number `direction:ltr; unicode-bidi:isolate`. Guillemets «» at the start or end of an RTL display line flip to the wrong side: drop them there (mid-line «نمو» is fine).
