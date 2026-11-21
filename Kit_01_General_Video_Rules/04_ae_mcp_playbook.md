@@ -12,9 +12,9 @@
 ## 1. What each path can do (checked Nov 2026)
 | Need | Best path | Notes |
 |---|---|---|
-| Small tweak on an existing comp (one keyframe, effect, marker, expression, read values) | **AfterEffectsMCP tools** (`setLayerKeyframe`, `setLayerExpression`, `add-marker`, `list-layer-effects`, `get-results`…) | No screenshots, cheapest. Needs the MCP Bridge panel open in AE. |
-| Full build / import / anything custom | **`tools/ae_run.ps1 -Jsx <file>`** (Claude Runner, §2) | Arabic text straight in the script, saves + versions the project first, prints the result. The AE MCP only runs a fixed list of predefined commands. |
-| Runner not reachable (exit 2) | read its message: close the dialog / restart AE; last resort `AfterFX.exe -r`, then computer use → File › Scripts › Run Script File… | Old path, kept only as a fallback. |
+| Everything in AE: small tweak, read values, full build, import | **`tools/ae_run.ps1 -Jsx <file>`** (Claude Runner, §2) | Arabic text straight in the script, saves + versions the project first, prints the result. |
+| Runner not reachable (exit 2) | read its message: close the dialog / restart AE (Omar: «لو مش لاقي نبض اقفل الافتر وافتحه تاني»); then `AfterFX.exe -r`, then computer use → File › Scripts › Run Script File… | Old path, kept only as a fallback. |
+| Emergency only: every runner attempt above failed | AfterEffectsMCP tools (`setLayerKeyframe`, `setLayerExpression`…) through the MCP Bridge panel | The Bridge panel stays **closed** otherwise; the runner heartbeat died twice on AE 2027 with it open (2026-11-21) `[ذوق عمر]`. Only a fixed list of predefined commands. |
 | Render MP4 | **`tools/ae_render.ps1`** (aerender in the background, `-Preview` = half res draft) | No GUI, Arabic folders OK, checks the audio stream. Renders the **saved** project (any runner job saves it). `aerender ERROR An existing connection was forcibly closed` right after a runner build = transient; rerun once (CLC R3, 2026-11-08). Time remap: never delete all its keys (`while(numKeys) removeKey(1)`) → the property hides and the next `setValueAtTime` throws «property or a parent property is hidden»; set the new keys first, then remove the leftovers (CLC R3). Also check the runner log says `OK` before rendering: ae_render renders whatever was saved, even a half build. |
 | Render QA stills / in-app render | Render Queue from a JSX (`tools/render_mp4_with_audio.jsx`) via the runner | Blocks AE while it renders. |
 | Read user's manual edits | MCP read tools or a small read-only JSX that dumps keys to a txt | Never rebuild over them. |

@@ -8,7 +8,7 @@ $ErrorActionPreference = "Stop"
 [Console]::OutputEncoding = New-Object System.Text.UTF8Encoding $false
 $q = Join-Path ([Environment]::GetFolderPath("MyDocuments")) "claude-ae-queue"
 $hb = Join-Path $q "runner.heartbeat"
-$afx = "C:\Program Files\Adobe\Adobe After Effects 2026\Support Files\AfterFX.exe"
+$afx = "C:\Program Files\Adobe\Adobe After Effects 2027\Support Files\AfterFX.exe"
 function Get-HeartbeatAge {
     if (-not (Test-Path $hb)) { return 1e9 }
     return ((Get-Date) - (Get-Item $hb).LastWriteTime).TotalSeconds

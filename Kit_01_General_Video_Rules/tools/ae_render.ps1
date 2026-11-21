@@ -15,7 +15,7 @@ param(
 )
 $ErrorActionPreference = "Stop"
 [Console]::OutputEncoding = New-Object System.Text.UTF8Encoding $false
-$aer = "C:\Program Files\Adobe\Adobe After Effects 2026\Support Files\aerender.exe"
+$aer = "C:\Program Files\Adobe\Adobe After Effects 2027\Support Files\aerender.exe"
 
 function Get-AsciiDir([string]$dir) {
     if ($dir -notmatch '[^\x00-\x7F]') { return $dir }
