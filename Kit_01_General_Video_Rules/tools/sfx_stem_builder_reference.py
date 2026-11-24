@@ -281,7 +281,7 @@ def cues():
         add(f"S5-06{'abcd'[i]}", "03_texture", t, click(0, db=-20, lp=4000), f"muffled word pulse {i + 1}", win=5)
     add("S5-07a", "04_emotional", 33.02, hit(1.48, db=-6, mid=True), "CTA burst: logo + 'تواصل معنا'")
     add("S5-07b", "02_motion", 33.02, chime(0, db=-14), "CTA chime", win=5)
-    add("S5-08a", "02_motion", 34.10, swoosh_p(+2, 0.6, db=-16), "'فريق DIGITAL BUILD' unblurs", win=30)
+    add("S5-08a", "02_motion", 34.10, swoosh_p(+2, 0.6, db=-16), "'فريق AG1' unblurs", win=30)
     add("S5-08b", "03_texture", 35.15, pop(-1, db=-14, lp=6000), "'جاهز يبنيها معك' final pop", win=5)
     return C
 

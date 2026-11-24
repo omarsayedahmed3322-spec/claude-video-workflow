@@ -31,10 +31,10 @@ READ_WORDS = re.compile(r"(^|_)(get|list|search|check|balance|credits?|cost|stat
 
 COMPANY = {
     "elevenlabs": ("ElevenLabs", None),
-    "magnific": ("Magnific", "digital build"),
-    "higgsfield": ("Higgsfield", "fmc"),
+    "magnific": ("Magnific", "AG1"),
+    "higgsfield": ("Higgsfield", "AG2"),
 }
-COMPANY_NAME = {"digital build": "AG1", "fmc": "AG2"}
+COMPANY_NAME = {"AG1": "AG1", "AG2": "AG2"}
 
 
 def main():
