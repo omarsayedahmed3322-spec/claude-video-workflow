@@ -51,7 +51,7 @@ function ctrlAdd(L, matchName, name, def, saved) {
     e.name = name;
     var v = (saved && saved.hasOwnProperty(name)) ? saved[name] : def;
     e.property(1).setValue(v);
-    return e;
+    return { name: name };   // not the effect: adding the next effect invalidates it («Object is invalid», CLH R7)
 }
 function ctrlSlider(L, name, def, saved) { return ctrlAdd(L, "ADBE Slider Control", name, def, saved); }
 function ctrlPoint(L, name, def, saved) { return ctrlAdd(L, "ADBE Point Control", name, def, saved); }

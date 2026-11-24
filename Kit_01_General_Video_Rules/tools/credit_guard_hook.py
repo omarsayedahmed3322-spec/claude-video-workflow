@@ -26,7 +26,8 @@ ELEVENLABS_SPEND = {
 }
 # Magnific / Higgsfield tool names are not visible (Magnific needs sign-in, Higgsfield has no MCP),
 # so for them every tool asks unless its name is clearly a lookup.
-READ_WORDS = re.compile(r"(^|_)(get|list|search|check|balance|credits?|cost|status|models?|account|usage|history)(_|$)")
+# wait/show/read/view added 2026-11-23 (CLG R7): creations_wait only polls a running job, it was asking every 30 s.
+READ_WORDS = re.compile(r"(^|_)(get|list|search|check|balance|credits?|cost|status|models?|account|usage|history|wait|show|read|view|metadata|simulate|lineage|notifications|profile|guides?)(_|$)")
 
 COMPANY = {
     "elevenlabs": ("ElevenLabs", None),

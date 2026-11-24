@@ -3,7 +3,10 @@ Keys live OUTSIDE this repo: <parent of Claude-Workflow>\\keys\\free-llm.env (ov
 Used by the skill free-llm-delegate. Prints only the answer on stdout (one "[provider/model]" line on stderr).
 
   python free_llm.py ask "prompt" [--task fast|long] [--provider groq] [--model ID] [--file a.txt ...] [--out res.md]
-  python free_llm.py ask --prompt-file brief.md --file ref.mp4      # media files -> Gemini (native API) only
+  python free_llm.py ask --prompt-file brief.md --file ref.mp4      # media: paid Gemini key if set, else agy
+  python free_llm.py ask --prompt-file p.txt --file reel.mp4 --fps 10 --thinking medium [--start 12 --end 18]   # paid key
+  python free_llm.py ask --prompt-file p.txt --file reel.mp4 --jpeg-sheets        # agy: frames as JPEG sheets + sound
+  python free_llm.py budget                                         # paid key: month spend vs cap
   python free_llm.py check                                          # which providers answer right now
   python free_llm.py models groq                                    # model ids a provider serves
   python free_llm.py ask "..." --provider agy --workdir "D:\some\folder"   # agy works inside that folder only
@@ -46,6 +49,18 @@ ORDER = {
     "long": ["gemini", "agy", "mistral", "nvidia", "groq", "zai", "gonka", "openrouter", "kilo", "llm7", "ovh"],
 }
 MEDIA_PREFIX = ("video/", "audio/", "image/")
+# Video on agy starts with neon-high (Omar 2026-11-19). Audio-only jobs keep PROVIDERS["agy"] (hydrogen: Arabic dialect text).
+AGY_VIDEO_MODELS = "gemini-4-neon-high,gemini-4-hydrogen-high"
+# Sheets on agy: hydrogen-high first. Same reel, same prompt, 13 sheets: hydrogen 192 s; neon ran into the 7-minute stop (AG1 R7, 2026-11-22).
+AGY_SHEETS_MODELS = "gemini-4-hydrogen-high,gemini-4-neon-high"
+AGY_SHEETS_TIMEOUT = 600   # s. The 7-minute stop is our own --print-timeout (agy itself has none)
+GEMINI_MEDIA_MODEL = "gemini-4-hydrogen"   # media on the Gemini API (the text list in PROVIDERS["gemini"] is separate)
+# USD per 1M tokens (input, output incl. thinking): Google's pricing page, read 2026-11-22. Unknown model -> hydrogen's price.
+GEMINI_PRICES = {"gemini-4-hydrogen": (1.50, 7.50), "gemini-4-neon": (3.00, 15.00), "gemini-4-argon": (2.00, 10.00),
+                 "gemini-3.8-flash": (0.75, 3.75), "gemini-3.5-flash-lite": (0.30, 2.50)}
+BUDGET_FILE = os.path.join(AGY_STATE_DIR, "_gemini_api_budget.json")
+HISTORY_DIR = os.path.join(AGY_STATE_DIR, "_gemini_api_history")
+BUDGET_DEFAULT_USD = 9.00   # safety cap per month when GEMINI_BUDGET_MONTHLY_USD is not set in free-llm.env
 RETRYABLE = {401, 402, 403, 404, 408, 410, 429, 500, 502, 503, 504}
 
 
@@ -59,7 +74,7 @@ def load_env():
                     k, v = line.split("=", 1)
                     env[k.strip()] = v.strip().strip('"').strip("'")
     for k, v in os.environ.items():  # real env vars win
-        if k.endswith(("_API_KEY", "_API_TOKEN", "_ACCOUNT_ID", "_MODEL")):
+        if k.endswith(("_API_KEY", "_API_TOKEN", "_ACCOUNT_ID", "_MODEL", "_BUDGET_MONTHLY_USD")):
             env[k] = v
     return env
 
@@ -392,14 +407,34 @@ def log(msg, t0=[time.time()]):  # progress on stderr, so a long media job never
     print("[%5.0fs] %s" % (time.time() - t0[0], msg), file=sys.stderr, flush=True)
 
 
-def light_proxy(p, tmp):
-    # Gemini samples video at ~1 fps, so 5 fps / crf 32 / 720 px wide loses nothing it uses. Audio stays (mono 48k)
-    # for VO and recitation jobs. 57 MB -> 3 MB on a 5-min phone clip.
+def _probe(p, *args):
+    r = subprocess.run(["ffprobe", "-v", "error"] + list(args) + ["-of", "csv=p=0", p], capture_output=True, text=True)
+    return r.stdout.strip()
+
+
+def _src_fps(p):
+    try:
+        n, d = _probe(p, "-select_streams", "v:0", "-show_entries", "stream=r_frame_rate").split(",")[0].split("/")
+        return float(n) / float(d)
+    except Exception:
+        return 0.0
+
+
+def light_proxy(p, tmp, target_fps=None):
+    # agy (target_fps None): its reader takes 1 image per second, so 5 fps / crf 32 / 720 px loses nothing it uses.
+    # Gemini API (target_fps = the fps asked in videoMetadata): the proxy must keep at least that many frames, or the
+    # API is paid for duplicated frames (the old fps=5 proxy under an fps=10 request). crf 28 keeps small Arabic text.
     if not (mimetypes.guess_type(p)[0] or "").startswith("video/") or os.path.getsize(p) <= PROXY_OVER or not shutil.which("ffmpeg"):
         return p
     out = os.path.join(tmp, "proxy_" + os.path.splitext(os.path.basename(p))[0] + ".mp4")
-    r = subprocess.run(["ffmpeg", "-nostdin", "-v", "error", "-y", "-i", p, "-vf", "fps=5,scale='min(720,iw)':-2",
-                        "-c:v", "libx264", "-crf", "32", "-preset", "veryfast", "-c:a", "aac", "-ac", "1", "-b:a", "48k", out])
+    if target_fps:
+        src = _src_fps(p)
+        keep = min(target_fps, src) if src else target_fps
+        vf, crf, abr = "fps=%g,scale='min(720,iw)':-2" % keep, "28", "64k"
+    else:
+        vf, crf, abr = "fps=5,scale='min(720,iw)':-2", "32", "48k"
+    r = subprocess.run(["ffmpeg", "-nostdin", "-v", "error", "-y", "-i", p, "-vf", vf,
+                        "-c:v", "libx264", "-crf", crf, "-preset", "veryfast", "-c:a", "aac", "-ac", "1", "-b:a", abr, out])
     if r.returncode != 0 or not os.path.exists(out):
         log("proxy failed, uploading the original")
         return p
@@ -407,78 +442,242 @@ def light_proxy(p, tmp):
     return out
 
 
-def gemini_media(env, prompt, paths, system=None, model=None, timeout=600):
-    key = env.get("GEMINI_API_KEY")
+def _budget_load():
+    try:
+        with open(BUDGET_FILE, encoding="utf-8") as f:
+            return json.load(f)
+    except Exception:
+        return {"months": {}}
+
+
+def budget_cap(env):
+    try:
+        return float(env.get("GEMINI_BUDGET_MONTHLY_USD") or BUDGET_DEFAULT_USD)
+    except ValueError:
+        return BUDGET_DEFAULT_USD
+
+
+def budget_month(month=None):
+    m = _budget_load().get("months", {}).get(month or time.strftime("%Y-%m"), {})
+    return float(m.get("usd", 0.0)), int(m.get("requests", 0))
+
+
+def gemini_cost(model, in_tok, out_tok):
+    pin, pout = next((v for k, v in GEMINI_PRICES.items() if model.startswith(k)), GEMINI_PRICES["gemini-4-hydrogen"])
+    return (in_tok * pin + out_tok * pout) / 1e6
+
+
+def budget_add(model, files, in_tok, out_tok, secs):
+    cost = gemini_cost(model, in_tok, out_tok)
+    b = _budget_load()
+    m = b.setdefault("months", {}).setdefault(time.strftime("%Y-%m"), {"usd": 0.0, "requests": 0, "items": []})
+    m["usd"] = round(m.get("usd", 0.0) + cost, 6)
+    m["requests"] = m.get("requests", 0) + 1
+    m.setdefault("items", []).append({"t": time.strftime("%Y-%m-%d %H:%M:%S"), "model": model, "files": files,
+                                      "in": in_tok, "out": out_tok, "sec": round(secs), "usd": round(cost, 6)})
+    tmp_p = "%s.%d.tmp" % (BUDGET_FILE, os.getpid())
+    with open(tmp_p, "w", encoding="utf-8") as f:
+        json.dump(b, f, ensure_ascii=False, indent=1)
+    os.replace(tmp_p, BUDGET_FILE)
+    return cost, m["usd"]
+
+
+def gemini_media(env, prompt, paths, system=None, model=None, timeout=None, fps=None, thinking="medium", media_res=None,
+                 start=None, end=None, paid=False, over_budget=False):
+    """Video/audio/image on the Gemini API: the model gets real video (videoMetadata.fps, up to 24) with its sound.
+    paid=True uses GEMINI_PAID_API_KEY, counts every answer against the monthly cap and refuses once it is reached.
+    paid=False is the free key: 20 requests a day on hydrogen, busy answers included, and Google may train on it."""
+    key = env.get("GEMINI_PAID_API_KEY" if paid else "GEMINI_API_KEY")
     if not key:
-        sys.exit("Media files need GEMINI_API_KEY in " + ENV_PATH)
+        sys.exit("Media files need %s in %s" % ("GEMINI_PAID_API_KEY" if paid else "GEMINI_API_KEY", ENV_PATH))
+    cap_usd = budget_cap(env)
+    if paid and not over_budget and budget_month()[0] >= cap_usd:
+        sys.exit("Monthly safety budget $%.2f reached ($%.2f spent) - pass --allow-over-budget only with Omar's OK"
+                 % (cap_usd, budget_month()[0]))
     h = {"x-goog-api-key": key}
-    model = model or env.get("GEMINI_MODEL") or PROVIDERS["gemini"][2]
+    model = model or env.get("GEMINI_MEDIA_MODEL") or GEMINI_MEDIA_MODEL
+    timeout = timeout or (540 if thinking == "high" else 300)
+    tier = "paid" if paid else "free"
+    names = [os.path.basename(p) for p in paths]
+    started = time.strftime("%Y-%m-%d %H:%M:%S")
+    t0 = time.time()
+    state = {"status": "running", "started_at": started, "model": "%s (API %s)" % (model, tier), "conversation_id": "",
+             "files": names, "file_paths": [os.path.abspath(p) for p in paths], "prompt": prompt[:8000], "events": [],
+             "live_thinking": "", "live_text": "", "duration_seconds": 0, "usage": {}, "error": ""}
+    _agy_write_log("\n" + "=" * 72 + "\n[%s] جلسة Gemini API (%s) | الموديل: %s | الملفات: %s\nالبرومبت: %s\n%s\n"
+                   % (_t12(True), tier, model, ", ".join(names), prompt[:600].replace("\n", " "), "-" * 72), reset_if_big=True)
+
+    def step(msg):
+        log(msg)
+        state["events"].append({"t": time.strftime("%Y-%m-%d %H:%M:%S"), "msg": msg})
+        state["duration_seconds"] = round(time.time() - t0, 1)
+        _agy_save_state(state)
+        _agy_write_log("[%s] %s\n" % (_t12(), msg))
+
+    def fail(msg):
+        state["status"], state["error"] = "error", msg
+        step("فشل: " + msg)
+        sys.exit(msg)
+
     uploaded = []
     tmp = tempfile.mkdtemp(prefix="gem_")
     try:
         for p in paths:
-            p = light_proxy(p, tmp)
+            p = light_proxy(p, tmp, target_fps=fps or 1)
             mime = mimetypes.guess_type(p)[0] or "application/octet-stream"
             size = os.path.getsize(p)
-            log("uploading %s (%.1f MB)" % (os.path.basename(p), size / 1e6))
-            r = requests.post(GEMINI + "/upload/v1beta/files", timeout=60, json={"file": {"display_name": os.path.basename(p)}},
+            step("uploading %s (%.1f MB)" % (os.path.basename(p), size / 1e6))
+            r = requests.post(GEMINI + "/upload/v1beta/files", timeout=60, json={"file": {"display_name": "media"}},
                               headers={**h, "X-Goog-Upload-Protocol": "resumable", "X-Goog-Upload-Command": "start",
                                        "X-Goog-Upload-Header-Content-Length": str(size),
                                        "X-Goog-Upload-Header-Content-Type": mime})
             r.raise_for_status()
             with open(p, "rb") as f:
-                r = requests.post(r.headers["X-Goog-Upload-URL"], data=f, timeout=timeout,
+                r = requests.post(r.headers["X-Goog-Upload-URL"], data=f, timeout=600,
                                   headers={"Content-Length": str(size), "X-Goog-Upload-Offset": "0",
                                            "X-Goog-Upload-Command": "upload, finalize"})
             r.raise_for_status()
             info = r.json()["file"]
             uploaded.append(info)
-            log("uploaded, Google is processing it")
             t = time.time()
             while info.get("state") == "PROCESSING":  # video needs a few seconds before it can be used
                 if time.time() - t > PROCESS_CAP:
-                    sys.exit("Gemini still processing %s after %ds" % (p, PROCESS_CAP))
+                    fail("Gemini still processing %s after %ds" % (p, PROCESS_CAP))
                 time.sleep(3)
                 info = requests.get(GEMINI + "/v1beta/" + info["name"], headers=h, timeout=30).json()
             if info.get("state") == "FAILED":
-                sys.exit("Gemini could not process " + p)
+                fail("Gemini could not process " + p)
             info["mime"] = mime
             uploaded[-1] = info
-        parts = [{"file_data": {"mime_type": u["mime"], "file_uri": u["uri"]}} for u in uploaded] + [{"text": prompt}]
+        parts = []
+        for u in uploaded:
+            part = {"fileData": {"mimeType": u["mime"], "fileUri": u["uri"]}}
+            if u["mime"].startswith("video/"):
+                vm = {}
+                if fps:
+                    vm["fps"] = float(fps)
+                if start is not None:
+                    vm["startOffset"] = "%gs" % start
+                if end is not None:
+                    vm["endOffset"] = "%gs" % end
+                if vm:
+                    part["videoMetadata"] = vm
+            parts.append(part)
+        parts.append({"text": prompt})
+        gen = {}
+        if thinking:
+            gen["thinkingConfig"] = {"thinkingLevel": thinking}
+        if media_res:
+            gen["mediaResolution"] = "MEDIA_RESOLUTION_" + media_res.upper()
         body = {"contents": [{"role": "user", "parts": parts}]}
+        if gen:
+            body["generationConfig"] = gen
         if system:
-            body["system_instruction"] = {"parts": [{"text": system}]}
-        models = model.split(",")
-        for i, m in enumerate(models):
-            cap = timeout if i == len(models) - 1 else min(timeout, GEN_CAP)  # the last model gets the full timeout
-            r = None
-            for wait in BUSY_WAITS + (None,):
-                log("asking %s (up to %ds)" % (m, cap))
+            body["systemInstruction"] = {"parts": [{"text": system}]}
+        r = None
+        for m in model.split(","):
+            waits = [15, 45, 90]
+            while True:   # a busy answer is retried on the SAME uploaded file, never re-uploaded
+                step("asking %s: fps=%s thinking=%s res=%s (up to %ds)" % (m, fps or "default", thinking, media_res or "default", timeout))
                 try:
-                    r = requests.post(GEMINI + "/v1beta/models/%s:generateContent" % m, headers=h, json=body, timeout=cap)
+                    r = requests.post(GEMINI + "/v1beta/models/%s:generateContent" % m, headers=h, json=body, timeout=timeout)
                 except requests.Timeout:
-                    log("%s gave no answer in %ds" % (m, cap))
+                    step("%s gave no answer in %ds" % (m, timeout))
+                    r = None
                     break
-                if r.status_code not in (429, 503) or wait is None:
+                dropped = [k for k in ("mediaResolution", "thinkingConfig") if k in gen and k[:8].lower() in r.text.lower()]
+                if r.status_code == 400 and dropped:
+                    step("%s refused %s, asking again without it: %s" % (m, "+".join(dropped), r.text[:160].replace("\n", " ")))
+                    for k in dropped:
+                        gen.pop(k)
+                    continue
+                daily = r.status_code == 429 and "per day" in r.text.lower()
+                if r.status_code not in (429, 500, 503) or daily or not waits:
                     break
-                log("%s busy (HTTP %d), retrying in %ds" % (m, r.status_code, wait))
+                wait = waits.pop(0)
+                step("%s busy (HTTP %d), same file again in %ds" % (m, r.status_code, wait))
                 time.sleep(wait)
-            if r is not None and r.status_code not in RETRYABLE:
+            if r is not None and (r.status_code == 200 or r.status_code not in RETRYABLE):
+                model = m
                 break
         if r is None:
-            sys.exit("Gemini gave no answer from " + model)
+            fail("Gemini gave no answer from " + model)
         if r.status_code != 200:
-            sys.exit("Gemini HTTP %d: %s" % (r.status_code, r.text[:300]))
-        model = m
-        cand = r.json().get("candidates") or [{}]
-        text = "".join(pt.get("text", "") for pt in cand[0].get("content", {}).get("parts", []))
-        return text, model
+            fail("Gemini HTTP %d: %s" % (r.status_code, r.text[:400]))
+        d = r.json()
+        text = "".join(pt.get("text", "") for pt in (d.get("candidates") or [{}])[0].get("content", {}).get("parts", []))
+        u = d.get("usageMetadata", {})
+        in_tok = u.get("promptTokenCount", 0)
+        out_tok = u.get("candidatesTokenCount", 0) + u.get("thoughtsTokenCount", 0)
+        secs = time.time() - t0
+        cost = gemini_cost(model, in_tok, out_tok)
+        if paid:
+            cost, month = budget_add(model, names, in_tok, out_tok, secs)
+            line = "[gemini/paid] %.0fs | in=%.1fk out+think=%.1fk | $%.3f | month=$%.2f/$%.2f" % (
+                secs, in_tok / 1e3, out_tok / 1e3, cost, month, cap_usd)
+        else:
+            line = "[gemini/free] %.0fs | in=%.1fk out+think=%.1fk | would cost $%.3f on the paid tier" % (
+                secs, in_tok / 1e3, out_tok / 1e3, cost)
+        state.update(status="done", live_text=text, usage={"input_tokens": in_tok, "output_tokens": out_tok,
+                                                           "thinking_tokens": u.get("thoughtsTokenCount", 0), "usd": round(cost, 4)})
+        step(line)
+        _agy_write_log("\nرد Gemini:\n%s\n" % text)
+        try:
+            os.makedirs(HISTORY_DIR, exist_ok=True)
+            hp = os.path.join(HISTORY_DIR, "%s_%s.json" % (time.strftime("%Y%m%d_%H%M%S"), os.path.splitext(names[0])[0][:40] if names else "text"))
+            with open(hp, "w", encoding="utf-8") as f:
+                json.dump({"started_at": started, "tier": tier, "model": model, "files": state["file_paths"], "fps": fps,
+                           "thinking": thinking, "media_res": media_res, "start": start, "end": end, "seconds": round(secs),
+                           "usage": u, "usd": round(cost, 6), "prompt": prompt, "answer": text}, f, ensure_ascii=False, indent=1)
+        except Exception:
+            pass
+        return text, "%s/%s" % (tier, model)
     finally:
         for u in uploaded:
             try:
                 requests.delete(GEMINI + "/v1beta/" + u["name"], headers=h, timeout=30)
             except Exception:
                 pass
+        shutil.rmtree(tmp, ignore_errors=True)
+
+
+def sheets_review(exe, prompt, system, model, video, fps):
+    """Interim eyes on agy (no paid key yet) and the fallback when the API is down. agy's reader hands the model ONE
+    image per second of a video file (measured 2026-11-22: 10 of 250 frames), but reads still images in full: the
+    reel goes as JPEG contact sheets, `fps` frames per second, 12 per sheet, real time stamped above every frame,
+    plus the soundtrack. 250 of 250 frames read on the test clip."""
+    try:
+        dur = float(_probe(video, "-show_entries", "format=duration"))
+    except ValueError:
+        sys.exit("ffprobe could not read the length of %s" % video)
+    font = os.path.join(os.environ.get("WINDIR", "C:\\Windows"), "Fonts", "arialbd.ttf")   # no fontfile = ffmpeg segfault here (Fontconfig)
+    fontarg = ("fontfile='%s':" % font.replace("\\", "/").replace(":", "\\:")) if os.path.exists(font) else ""
+    tmp = tempfile.mkdtemp(prefix="sheets_")
+    try:
+        vf = ("fps=%g,scale=432:-2:flags=lanczos,pad=iw:ih+40:0:40:black," % fps
+              + "drawtext=" + fontarg + "text='T %{pts\\:hms}':fontsize=28:fontcolor=yellow:x=8:y=6,tile=4x3:padding=6:color=white")
+        r = subprocess.run(["ffmpeg", "-nostdin", "-v", "error", "-y", "-i", video, "-an", "-vf", vf, "-q:v", "3",
+                            os.path.join(tmp, "sheet_%02d.jpg")])
+        sheets = sorted(glob.glob(os.path.join(tmp, "sheet_*.jpg")))
+        if r.returncode != 0 or not sheets:
+            sys.exit("ffmpeg could not build the sheets")
+        files = list(sheets)
+        if _probe(video, "-select_streams", "a", "-show_entries", "stream=index"):
+            au = os.path.join(tmp, "sound.mp3")
+            if subprocess.run(["ffmpeg", "-nostdin", "-v", "error", "-y", "-i", video, "-vn", "-c:a", "libmp3lame", "-q:a", "5", au]).returncode == 0:
+                files.append(au)
+        log("sheets: %d images at %g fps, %.1f MB with sound, reel %.1f s" % (len(sheets), fps, sum(os.path.getsize(f) for f in files) / 1e6, dur))
+        pre = ("HOW YOU SEE THIS REEL (set by the tool, always true):\n"
+               "- The image files are contact sheets of CONSECUTIVE frames of the reel, %g frames per second, 12 per sheet, "
+               "reading order left to right then top to bottom; the files are in order, the first one comes first.\n"
+               "- The yellow \"T hh:mm:ss.mmm\" stamp in the black bar above each frame is that frame's REAL reel time. The "
+               "bar is not part of the reel. Report every time from those stamps.\n" % fps)
+        if len(files) > len(sheets):
+            pre += "- The mp3 file is the reel's real soundtrack at normal speed. Times you give for sounds are approximate.\n"
+        pre += ("- You cannot see what happens between two frames. Never state that something lasted, appeared or vanished "
+                "at a time you have no stamped frame for; say \"not sure\" instead.\n\nTASK:\n")
+        return antigravity(exe, pre + prompt, system, model, AGY_SHEETS_TIMEOUT, None, files)
+    finally:
         shutil.rmtree(tmp, ignore_errors=True)
 
 
@@ -566,6 +765,15 @@ def cmd_image(a, env):
     print("codex image -> %s | %s" % (out, codex_gate()[1]))
 
 
+def cmd_budget(a, env):
+    cap = budget_cap(env)
+    usd, n = budget_month()
+    avg = usd / n if n else 0.09   # 0.09 = one 31 s reel at 10 fps, thinking medium (measured 2026-11-22)
+    print("Gemini paid key: %s | month %s: $%.2f of $%.2f in %d request(s)" % (
+        "set" if env.get("GEMINI_PAID_API_KEY") else "NOT set (media goes to agy)", time.strftime("%Y-%m"), usd, cap, n))
+    print("left: $%.2f = about %d review(s) at $%.3f each" % (max(0.0, cap - usd), int(max(0.0, cap - usd) / avg), avg))
+
+
 def cmd_limits(a, env):
     print(codex_gate()[1] if codex_gate()[0] else "PAUSED: " + codex_gate()[1])
 
@@ -609,19 +817,38 @@ def cmd_ask(a, env):
     # asks (--provider <name> or --free). The Gemini API key runs out after a few requests. If agy fails, stop and
     # say so; never fall through silently.
     if media:
-        if a.provider == "gemini":
-            text, used = gemini_media(env, prompt, media, a.system, a.model)
-            route = "gemini/" + used
-        else:
+        is_video = lambda p: (mimetypes.guess_type(p)[0] or "").startswith("video/")
+        paid = bool(env.get("GEMINI_PAID_API_KEY"))
+        api = dict(fps=a.fps, thinking=a.thinking, media_res=a.media_res, start=a.start, end=a.end)
+        if a.jpeg_sheets or a.provider == "agy" or not (paid or a.provider == "gemini" or a.allow_free_media):
+            # agy: asked for by name, the sheets mode, or the interim route while no paid key is set
             ep = endpoint("agy", env)
             if not ep:
-                sys.exit("agy not found. Use --provider gemini (API key, few requests) only if Omar asks")
+                sys.exit("agy not found, and no GEMINI_PAID_API_KEY in " + ENV_PATH)
+            if not (a.jpeg_sheets or a.provider == "agy"):
+                log("Paid Gemini key not configured yet -> using interim agy mode")
+            agy_model = a.model or (AGY_VIDEO_MODELS if any(is_video(p) for p in media) else ep[2])
             log("agy is watching %d file(s)" % len(media))
             try:
-                text, used = antigravity(ep[0], prompt, a.system, a.model or ep[2], AGY_MEDIA_TIMEOUT, a.workdir, media)
+                if a.jpeg_sheets:
+                    if len(media) != 1 or not is_video(media[0]):
+                        sys.exit("--jpeg-sheets takes exactly one video file (its sound is sent along by itself)")
+                    text, used = sheets_review(ep[0], prompt, a.system, a.model or AGY_SHEETS_MODELS, media[0], a.fps or 5)
+                else:
+                    text, used = antigravity(ep[0], prompt, a.system, agy_model, AGY_MEDIA_TIMEOUT, a.workdir, media)
             except Skip as e:
                 sys.exit("agy failed: %s" % e)
             route = "agy/" + used
+        elif paid and not a.allow_free_media:
+            text, used = gemini_media(env, prompt, media, a.system, a.model, paid=True, over_budget=a.allow_over_budget, **api)
+            route = "gemini/" + used
+        else:
+            # the free key: 20 requests a day on hydrogen, busy answers included, and Google may train on what it gets
+            if not a.allow_free_media:
+                sys.exit("Refused: the free Gemini key is not for client media (Google may train on it). "
+                         "Add --allow-free-media only for a non-secret test, or set GEMINI_PAID_API_KEY in " + ENV_PATH)
+            text, used = gemini_media(env, prompt, media, a.system, a.model, paid=False, **api)
+            route = "gemini/" + used
     else:
         if not a.provider and not a.free:
             sys.exit("Text jobs run only when Omar asks: add --provider <name> or --free")
@@ -688,6 +915,14 @@ def main():
     s.add_argument("--system")
     s.add_argument("--max-tokens", type=int, default=4096)
     s.add_argument("--out")
+    s.add_argument("--fps", type=float, help="Gemini API: frames per second the model gets (max 24). With --jpeg-sheets: frames per second on the sheets (default 5)")
+    s.add_argument("--thinking", choices=["low", "medium", "high"], default="medium", help="Gemini API thinking level (high = final gate of class A/A+ only)")
+    s.add_argument("--media-res", choices=["low", "medium", "high"], help="Gemini API: resolution of each frame (high for small Arabic text)")
+    s.add_argument("--start", type=float, help="Gemini API: review from this second")
+    s.add_argument("--end", type=float, help="Gemini API: review up to this second")
+    s.add_argument("--jpeg-sheets", action="store_true", help="agy: send one video as JPEG contact sheets + its sound (interim / fallback)")
+    s.add_argument("--allow-free-media", action="store_true", help="send media on the FREE Gemini key (non-secret tests only)")
+    s.add_argument("--allow-over-budget", action="store_true", help="paid Gemini key past the monthly cap (only with Omar's OK)")
     s.add_argument("--workdir", help="agy only: the one folder it may work in (default: an empty temp folder)")
     s.add_argument("--allow-protected-workdir", action="store_true",
                    help="let --workdir point under Clients\\ or Claude-Workflow\\ (only when Omar asked)")
@@ -700,12 +935,13 @@ def main():
     s.add_argument("--model", default="gpt-6-luna", help="Codex model that drives image_gen (default fast)")
     s.add_argument("--effort", default="low", help="reasoning effort of that driver")
     sub.add_parser("limits", help="Codex usage vs Omar's caps (reads local logs, costs nothing)")
+    sub.add_parser("budget", help="paid Gemini key: this month's spend against the safety cap (costs nothing)")
     sub.add_parser("check")
     s = sub.add_parser("models")
     s.add_argument("name", choices=PROVIDERS)
     a = ap.parse_args()
     env = load_env()
-    {"ask": cmd_ask, "check": cmd_check, "models": cmd_models, "image": cmd_image, "limits": cmd_limits}[a.cmd](a, env)
+    {"ask": cmd_ask, "check": cmd_check, "models": cmd_models, "image": cmd_image, "limits": cmd_limits, "budget": cmd_budget}[a.cmd](a, env)
 
 
 if __name__ == "__main__":

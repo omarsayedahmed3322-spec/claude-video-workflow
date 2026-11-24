@@ -43,6 +43,16 @@
 - **Caption bubbles / chat lines (CLE R2, Omar):** pop-in = scale 55→100 with the bounce overshoot (a bubble is a card) + Gaussian Blur 16→0 over the first ~4 frames + motion blur ON. **Dialogue = one line on screen at a time:** each line leaves right after its last word (lift 70px, scale 100→86, blur 0→22, opacity out over 0.2s, 15/85) — stacking two speakers' lines scattered the eye.
 - Collage/sticker wobble: `posterizeTime(12)` for a tactile stop-motion feel; text/camera/UI stay smooth.
 
+## 4b. تايبوجرافي كبير على فوتيج حقيقي (key-phrase type on real footage) `[ذوق عمر]`
+> Omar on CLA R8 v3 (2026-11-23): «عجبني اوي اوي اوي… التايبوجرافي والموشن والبلور الي بيتعمل ف البدايه ونعومه حركه الموشن», then «ثبتهم لمهارات المونتاج عندك عموما». Default for the key phrases of any real-footage reel. Fonts and colours come from the client's identity; the motion numbers stay. Reference build: `D:\Montage-02\Clients\AG2\CLA\reel-08 - care\scripts\build_CLA_R8.jsx` (25 fps, 1080×1920).
+- **Layout:** two lines per phrase: a small plain line (58–80 px, white ExtraBold) + the key word big and italic in the brand accent (140–156 px), 92–114 px between line centres, max width 900 (shrink if wider), inside the safe zone and never on the face. About 4 phrases per 30 s; the caption hides while big type is up and never repeats it.
+- **Entry (this is the smoothness):** each line lands on its own spoken word: Y +44 → 0 in 12 f, opacity 0→100 in 7 f, Gaussian Blur 18→0 in 10 f (Repeat Edge Pixels ON), tracking 12→0 in 14 f. Ease: first key out 12 %, last key in 85 %, speed 0; opacity 60/60.
+- **Exit:** 6 f, up 22 px, blur 0→14, opacity →0, ease out 40 / in 70; lines leave 1 f apart, first line first.
+- **Lists and tags:** a word list rises word by word on its spoken words (+36 in 11 f, opacity 6 f, blur 16→0 in 9 f). A name tag rises letter by letter (+28, 5 f per letter, 0.5 f apart, cubic ease-out `1-(1-x)^3`).
+- **Shadow:** 13 %, distance 3, softness 34, no box behind big type. **No motion blur on the type:** the smoothness is the ease + blur + tracking, not the shutter.
+- **Line motif (optional, one per reel, taken from the reel's idea):** stroke 3, dash 14 / gap 10, round cap, drawn with Trim Paths 0→100 in 9–16 f, ease 10/80 (R8: a couture stitch under the key word).
+- **Around it:** plain cuts wide ↔ close 128 %, slow zoom 1.9 %/s on wides only (33/33, speed 0 at both ends); the type carries the motion, the camera stays calm.
+
 ## 5. Timing readability (from user reviews)
 - Anything that must be read on a beat must be **fully in and sharp before the word is spoken**, and fully settled before the next cut.
 - Typewriter lines finish ≥0.5s before the cut.

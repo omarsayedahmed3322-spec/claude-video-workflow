@@ -32,7 +32,7 @@ description: Edit a reel built on a real person talking to the camera (seated ta
 ## الخطوات بالترتيب
 1. **Probe the footage** (rotation flag, audio `codec_name`): `01` §D. Camera vertical footage often reads 16:9 (`rotation=90`).
 2. **Speech first, before any cut** `[ذوق عمر]`: Omar cleans every recorded voice in Adobe Podcast «Enhance Speech» (§الصوت).
-3. **Word times:** whisper `small --word_timestamps` (`03`, `00_quick_rules`); with a script `stable-ts --align`, and score the methods each time (`03` captions step 1, Omar 2026-11-14). A phrase starts at the end of the silence before it, never at whisper's first word (`05` §1).
+3. **Word times:** `tools/hf_captions/whisper_gpu.py` (GPU, `large-v3-turbo`, not `small`; `03`, `00_quick_rules`); with a script `stable-ts --align`, and score the methods each time (`03` captions step 1, Omar 2026-11-14). A phrase starts at the end of the silence before it, never at whisper's first word (`05` §1).
 4. **Cut plan = one EDL** (`plan_talking.py`): the speaker layers, B-roll, captions, framing and the mix all read the same file.
 5. **Build** in AE with `build_talking.jsx` through `tools\ae_run.ps1`; the mix comes from `mix_talking.py` (the build imports it as one WAV).
 6. **QC:** `tools\qc_reel.py <mp4> --type talking` (or `ae_render.ps1 -Type talking`). Use its `.qc_sheet.png` (one frame per shot + safe zone) instead of a separate contact sheet. Then the client checklist as a table, every «نعم» with a second or frame (`01` §E).
@@ -85,6 +85,7 @@ description: Edit a reel built on a real person talking to the camera (seated ta
 ## الكابشن
 - At 1080 wide: **40 px for speech, 54 for big intro lines** (46/62 were «مكبره اوي»), with a quick blur pop in and out (24→0 in 5 frames, 0→24 in 4). Font and colour: the client file.
 - A line leaves 0.12 s after its last word (`05` §1).
+- **Key phrases as big type (small white line + big italic accent word, rising with blur on the spoken word):** the numbers are in `02_motion_laws.md` §4b `[ذوق عمر]` (CLA R8, 2026-11-23). Use it on class `A` / `A+` talking heads; the caption hides while it is up.
 - **Translated captions (speech in Arabic, text in English) are timed on the Arabic words they translate** `[ذوق عمر]` (CLA R3 v2: «مش متزامنة»): each line 1 f before its words' onset (10 ms RMS). Word order differs → one line for the sentence, or split in the Arabic order with the client's same words. **No caption tap sound by default** (§الصوت).
 
 ## الصوت
