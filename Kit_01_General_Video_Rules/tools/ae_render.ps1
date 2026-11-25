@@ -59,5 +59,7 @@ $qc = Join-Path $PSScriptRoot "qc_reel.py"
 $qargs = @("-I", "-X", "utf8", $qc, $outFull)
 if ($Type) { $qargs += @("--type", $Type) }
 & python @qargs
-if ($LASTEXITCODE -ne 0) { "QC FAIL - don't send this version (see the table above)" }
+# Exit codes: 0 = rendered and QC passed (warnings allowed), 1 = no output file, 2 = rendered but QC failed.
+# Until 2026-11-25 a QC FAIL still exited 0, so a chained step (copy, review, upload) ran on a failed version.
+if ($LASTEXITCODE -ne 0) { "QC FAIL - don't send this version (see the table above)"; exit 2 }
 exit 0

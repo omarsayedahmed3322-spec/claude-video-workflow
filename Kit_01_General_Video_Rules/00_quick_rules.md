@@ -15,6 +15,7 @@
 - B-roll from event shoots / client sites: skip frames with crew, rigs or script notes in hand, and web banners with baked-in buttons («ORDER NOW») or callouts — agy flagged both as amateur (CLA R1). Use the clean product render or an AI shot made from it.
 - Review = **MP4 with VO**. Never say "done/fixed" before seeing it in the MP4.
 - Every render → `tools\qc_reel.py` (`ae_render.ps1 -Type` runs it). **No version goes to Omar with a «سقط»** (`01` §E).
+- Omar's Desktop = `C:\Users\PC\OneDrive\Desktop\` (`[Environment]::GetFolderPath('Desktop')`), never `C:\Users\PC\Desktop`; check the copy is there before saying so `[تقني]` (CLH R8, CLE R6, 2026-11-22: «مش لاقياه عالدسكتوب»).
 
 ## Building in AE
 - Which engine (ffmpeg / HyperFrames / AE / Premiere XML) for which job: the table in `04` §0.
@@ -36,6 +37,7 @@
 | Logo on a van / product / sign, or removing / moving a logo in a clip | skill `logo-on-object` |
 | A reel of a real person talking (seated speaker, presenter, doctor, interview) | skill `reel-talking-head` |
 | A reel cut to music with no VO (showcase, cut on the beat, rough cut, colour, crash-zoom burst) | skill `reel-music-montage` |
+| A full motion-graphics reel in HyperFrames, no footage (flat light look, zones, sizes, word timing, QC) | skill `reel-motion-graphics-hf` |
 | Arabic text in AE (kashida, alignment, typewriter) or HF captions | `03_arabic_typography.md` |
 | Running / rendering / debugging AE, a script error | `04_ae_mcp_playbook.md` (§5–7 gotchas) |
 | VO measuring, SFX, mix | `05_audio_sfx.md` + skill `reel-sound-design` |

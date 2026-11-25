@@ -16,7 +16,7 @@ What it does (each step is idempotent: running it twice changes nothing the seco
     install -s user`. With --claude-dir the CLI gets CLAUDE_CONFIG_DIR=<claude-dir>. --no-plugins skips it.
 Formats checked against the Claude Code docs on 13 Nov 2026 (settings / hooks / memory / plugins pages).
 """
-import argparse, datetime, json, os, shutil, subprocess, sys
+import argparse, datetime, json, os, re, shutil, subprocess, sys
 
 ROOT = os.path.dirname(os.path.abspath(__file__))
 TOOLS = os.path.join(ROOT, "Kit_01_General_Video_Rules", "tools")
@@ -24,7 +24,10 @@ FWD = ROOT.replace("\\", "/")
 
 # (event, matcher or None, script file, extra args, python flags, timeout) - same as Omar's PC on 13 Nov 2026
 HOOKS = [
-    ("PreToolUse", "^mcp__.*([Ee]leven[Ll]abs|[Mm]agnific|[Hh]iggsfield)", "credit_guard_hook.py", "", "-I -X utf8 ", 10),
+    # Second half of the matcher = a server named by a bare connector id (the desktop app names claude.ai connectors
+    # that way). The ids themselves are per account: they are added by hand as " --id <id>=higgsfield" on the hook's
+    # command (NEW-PC-SETUP.md), and merge_settings keeps them when it updates the hook.
+    ("PreToolUse", "^mcp__(.*([Ee]leven[Ll]abs|[Mm]agnific|[Hh]iggsfield)|[0-9a-f]{8}-[0-9a-f]{4}-)", "credit_guard_hook.py", "", "-I -X utf8 ", 10),
     ("Stop", None, "kit_review_hook.py", "", "", 20),
     ("SessionStart", "startup", "kit_review_hook.py", " --session-start", "-I -X utf8 ", 10),
 ]
@@ -57,11 +60,14 @@ def merge_settings(s):
         groups = hooks.setdefault(event, [])
         done = False
         for g in groups:
-            if g.get("matcher") != matcher:
-                continue
+            # Found by its script, not by its matcher: a matcher that changed here is updated in place
+            # instead of leaving the old hook next to a new one.
             for h in g.get("hooks", []):
                 if script in h.get("command", "") and (("--session-start" in h["command"]) == bool(args)):
-                    h.update(want); done = True
+                    ids = "".join(re.findall(r' --id \S+', h["command"]))   # this account's connector ids
+                    h.update(dict(want, command=cmd + ids)); done = True
+                    if matcher is not None:
+                        g["matcher"] = matcher
         if not done:
             g = {"hooks": [want]}
             if matcher is not None:

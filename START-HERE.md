@@ -72,6 +72,7 @@
 | لوجو على عربية أو منتج أو يافطة، أو شيل/نقل لوجو في كليب | سكيل `logo-on-object` (`Kit_01_General_Video_Rules\skills\logo-on-object\SKILL.md`) |
 | ريل لحد بيتكلم للكاميرا (متكلم قاعد، مقدم، دكتور، بودكاست): قص السكوت، الكادر، البي رول، الكابشن، صوت المتكلم | سكيل `reel-talking-head` (`Kit_01_General_Video_Rules\skills\reel-talking-head\SKILL.md`) |
 | ريل مونتاج على مزيكا من غير فويس (استعراض محل أو منتج، قطع على البيت): شبكة الضربات، الراف كات، الاتجاه، الهوك السريع، اللون | سكيل `reel-music-montage` (`Kit_01_General_Video_Rules\skills\reel-music-montage\SKILL.md`) |
+| ريل موشن جرافيك كامل في HyperFrames من غير فوتيج (شرح خدمة، تطبيق، عرض): الشكل الفلات الفاتح، المناطق، الأحجام، توقيت الكلمات، الفحص | سكيل `reel-motion-graphics-hf` (`Kit_01_General_Video_Rules\skills\reel-motion-graphics-hf\SKILL.md`) |
 | ساوند ديزاين | سكيل `reel-sound-design` (`Kit_01_General_Video_Rules\skills\reel-sound-design\SKILL.md`) + `Kit_01\05_audio_sfx.md` |
 | مكان أي حاجة على الجهاز | `THIS-PC.md` |
 | مكتبة الساوند | `SFX_Library\` |

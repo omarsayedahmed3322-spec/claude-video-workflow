@@ -27,7 +27,7 @@ description: Edit a reel cut to music from real footage with no voice-over (shop
 ## الخطوات بالترتيب
 1. **Footage + references:** probe every clip (`01` §D; FX30 vertical = `3840×2160` with `rotation=90`, 50p → clean 50 % slow-mo).
    Analyse the client's references before the beats plan (`CLB` file: they show the taste for every video).
-2. **Beat grid from the file, never from agy/Gemini** `[تقني]` (§شبكة الضربات): `beat_grid.py <track> --near <song sec>`.
+2. **Beat grid from the file, never from agy/Gemini** `[تقني]` (§شبكة الضربات): `beat_grid.py <track> --near <song sec>`. The kick onsets from `beat_grid.py` shift ~40 ms with the analysed length, so the grid drifts to the end: refit with `references/fit_grid_R9.py` (120 Hz envelope, onset at 20 % of the rise, residuals ±10 ms) and check every cut with `references/check_cut_frames_R9.py` `[تقني]` (CLD R9, 2026-11-20: 16/16 cuts on the beat).
 3. **Omar's rough cut, if he made one** = his shot selection (§الراف كات): `match_rough.py` → `motion_rough.py`.
 4. **Beats plan** (class A/B: stop for approval): which shot on which beats, the direction clusters, the burst(s), the break, the outro.
 5. **Colour:** `grade.py sheet` (before/after) → OK → `edl_montage.py grade` (graded intermediates, §اللون).
